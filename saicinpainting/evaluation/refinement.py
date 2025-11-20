@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.optim import Adam, SGD 
 from kornia.filters import gaussian_blur2d
 from kornia.geometry.transform import resize
-from kornia.morphology import erosion
+from kornia.morphology import erosion, dilation
 from torch.nn import functional as F
 import numpy as np
 import cv2
@@ -87,7 +87,7 @@ def _infer(
     image : torch.Tensor, mask : torch.Tensor, 
     forward_front : nn.Module, forward_rears : nn.Module, 
     ref_lower_res : torch.Tensor, orig_shape : tuple, devices : list, 
-    scale_ind : int, n_iters : int=15, lr : float=0.002):
+    scale_ind : int, n_iters : int=15, lr : float=0.002, ablation_mode="R0",lambda_edge=1.0):
     """Performs inference with refinement at a given scale.
 
     Parameters
@@ -160,6 +160,31 @@ def _infer(
         mask_downscaled = mask_downscaled.repeat(1,3,1,1)
         losses["ms_l1"] = _l1_loss(pred, pred_downscaled, ref_lower_res, mask, mask_downscaled, image, on_pred=True)
 
+
+
+        # ---------- R1: Boundary-aware L1 Loss ----------
+        if ablation_mode == "R1":
+            # mask_full = full resolution mask (1 channel)
+            mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]]  # shape (B,1,H,W)
+            ring_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+            ring_kernel = torch.from_numpy(ring_kernel).float().to(mask_full.device)
+            # dilation / erosion
+            mask_dilate = dilation(mask_full, ring_kernel)
+            mask_erode  = erosion(mask_full,  ring_kernel)
+            ring = (mask_dilate - mask_erode).clamp(0, 1)
+            ring = ring.repeat(1,3,1,1)
+            # L1(pred, image) but only on ring region
+            pred_cropped  = pred[:, :, :orig_shape[0], :orig_shape[1]]
+            img_cropped   = image[:, :, :orig_shape[0], :orig_shape[1]]
+            edge_loss = torch.mean(torch.abs(
+                pred_cropped[ring > 0.5] - img_cropped[ring > 0.5]
+            ))
+            losses["edge_l1"] = lambda_edge * edge_loss
+            print("R1 running")
+
+
+
+
         loss = sum(losses.values())
         pbar.set_description("Refining scale {} using scale {} ...current loss: {:.4f}".format(scale_ind+1, scale_ind, loss.item()))
         if idi < n_iters - 1:
@@ -229,7 +254,7 @@ def refine_predict(
     batch : dict, inpainter : nn.Module, gpu_ids : str, 
     modulo : int, n_iters : int, lr : float, min_side : int, 
     max_scales : int, px_budget : int
-    ):
+    , ablation_mode=None, lambda_edge = None):
     """Refines the inpainting of the network
 
     Parameters
@@ -305,7 +330,21 @@ def refine_predict(
         image, mask = move_to_device(image, devices[0]), move_to_device(mask, devices[0])
         if image_inpainted is not None:
             image_inpainted = move_to_device(image_inpainted, devices[-1])
-        image_inpainted = _infer(image, mask, forward_front, forward_rears, image_inpainted, orig_shape, devices, ids, n_iters, lr)
+
+
+        # image_inpainted = _infer(image, mask, forward_front, forward_rears, image_inpainted, orig_shape, devices, ids, n_iters, lr)
+
+
+        # ---------- R1: Boundary-aware L1 Loss ----------
+        image_inpainted = _infer(
+            image, mask, forward_front, forward_rears,
+            image_inpainted, orig_shape, devices, ids,
+            n_iters, lr,
+            ablation_mode=ablation_mode,
+            lambda_edge=lambda_edge
+        )
+
+
         image_inpainted = image_inpainted[:,:,:orig_shape[0], :orig_shape[1]]
         # detach everything to save resources
         image = image.detach().cpu()
