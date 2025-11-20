@@ -182,6 +182,7 @@ def _infer(
 
         # ---------- R1: Boundary-aware L1 Loss ----------
         if ablation_mode == "R1":
+            print("R1 running")
             # mask_full = full resolution mask (1 channel)
             mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]]  # shape (B,1,H,W)
             ring_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
@@ -198,12 +199,13 @@ def _infer(
                 pred_cropped[ring > 0.5] - img_cropped[ring > 0.5]
             ))
             losses["edge_l1"] = lambda_edge * edge_loss
-            print("R1 running")
+
 
 
 
         # ---------- R2: Perceptual loss ----------
         if ablation_mode == "R2" and lambda_perc > 0.0:
+            print("R3 running")
             ref_up = F.interpolate(
                 ref_lower_res, size=orig_shape,
                 mode='bilinear', align_corners=False
@@ -227,10 +229,27 @@ def _infer(
             losses["perceptual"] = lambda_perc * perc_loss
 
 
+
+
         loss = sum(losses.values())
         pbar.set_description("Refining scale {} using scale {} ...current loss: {:.4f}".format(scale_ind+1, scale_ind, loss.item()))
         if idi < n_iters - 1:
             loss.backward()
+
+            # ---------- R3: Masked latent refinement ----------
+            if ablation_mode == "R3":
+                print("R3 running")
+                mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]].to(z1.device)
+                feat_mask = F.interpolate(
+                    mask_full, size=z1.shape[-2:], mode='nearest'
+                )
+                feat_mask = (feat_mask >= 1e-8).float()
+                if z1.grad is not None:
+                    z1.grad *= feat_mask
+                if z2.grad is not None:
+                    z2.grad *= feat_mask
+
+
             optimizer.step()
             del pred_downscaled
             del loss
