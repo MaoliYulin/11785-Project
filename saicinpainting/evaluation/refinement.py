@@ -7,6 +7,7 @@ from kornia.morphology import erosion, dilation
 from torch.nn import functional as F
 import numpy as np
 import cv2
+from torchvision import models
 
 from saicinpainting.evaluation.data import pad_tensor_to_modulo
 from saicinpainting.evaluation.utils import move_to_device
@@ -83,11 +84,28 @@ def _l1_loss(
         loss += torch.mean(torch.abs(pred_downscaled[mask_downscaled>=1e-8] - ref[mask_downscaled>=1e-8]))                
     return loss
 
+
+_PERCEPTUAL_NET = None
+def get_perceptual_net(device):
+    global _PERCEPTUAL_NET
+    if _PERCEPTUAL_NET is None:
+        try:
+            vgg = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_FEATURES)
+        except Exception:
+            vgg = models.vgg16(pretrained=True)
+        vgg_features = vgg.features[:16]
+        vgg_features.eval()
+        for p in vgg_features.parameters():
+            p.requires_grad = False
+        _PERCEPTUAL_NET = vgg_features.to(device)
+    return _PERCEPTUAL_NET
+
+
 def _infer(
     image : torch.Tensor, mask : torch.Tensor, 
     forward_front : nn.Module, forward_rears : nn.Module, 
     ref_lower_res : torch.Tensor, orig_shape : tuple, devices : list, 
-    scale_ind : int, n_iters : int=15, lr : float=0.002, ablation_mode="R0",lambda_edge=1.0):
+    scale_ind : int, n_iters : int=15, lr : float=0.002, ablation_mode="R0",lambda_edge=1.0,lambda_perc: float = 0.0):
     """Performs inference with refinement at a given scale.
 
     Parameters
@@ -184,6 +202,26 @@ def _infer(
 
 
 
+        if ablation_mode == "R2" and lambda_perc > 0.0:
+            ref_up = F.interpolate(
+                ref_lower_res, size=orig_shape,
+                mode='bilinear', align_corners=False
+            )
+            pred_cropped = pred[:, :, :orig_shape[0], :orig_shape[1]]   # (B,3,H,W)
+            mask_full    = mask[:, :1, :orig_shape[0], :orig_shape[1]]  # (B,1,H,W)
+            perc_net = get_perceptual_net(pred_cropped.device)
+            feat_pred = perc_net(pred_cropped)
+            with torch.no_grad():
+                feat_ref  = perc_net(ref_up)
+            feat_mask = F.interpolate(
+                mask_full, size=feat_pred.shape[-2:],
+                mode='nearest'
+            )
+            perc_loss = torch.mean(torch.abs(
+                feat_pred[feat_mask >= 1e-8] - feat_ref[feat_mask >= 1e-8]
+            ))
+            losses["perceptual"] = lambda_perc * perc_loss
+
 
         loss = sum(losses.values())
         pbar.set_description("Refining scale {} using scale {} ...current loss: {:.4f}".format(scale_ind+1, scale_ind, loss.item()))
@@ -254,7 +292,7 @@ def refine_predict(
     batch : dict, inpainter : nn.Module, gpu_ids : str, 
     modulo : int, n_iters : int, lr : float, min_side : int, 
     max_scales : int, px_budget : int
-    , ablation_mode=None, lambda_edge = None):
+    , ablation_mode: str = "R0", lambda_edge = None,lambda_perc: float = 0.0):
     """Refines the inpainting of the network
 
     Parameters
@@ -341,7 +379,8 @@ def refine_predict(
             image_inpainted, orig_shape, devices, ids,
             n_iters, lr,
             ablation_mode=ablation_mode,
-            lambda_edge=lambda_edge
+            # lambda_edge=lambda_edge,
+            lambda_perc=lambda_perc,
         )
 
 
