@@ -202,24 +202,28 @@ def _infer(
 
 
 
+        # ---------- R2: Perceptual loss ----------
         if ablation_mode == "R2" and lambda_perc > 0.0:
             ref_up = F.interpolate(
                 ref_lower_res, size=orig_shape,
                 mode='bilinear', align_corners=False
-            )
+            )  # (B,3,H,W)
             pred_cropped = pred[:, :, :orig_shape[0], :orig_shape[1]]   # (B,3,H,W)
             mask_full    = mask[:, :1, :orig_shape[0], :orig_shape[1]]  # (B,1,H,W)
+
             perc_net = get_perceptual_net(pred_cropped.device)
-            feat_pred = perc_net(pred_cropped)
+            feat_pred = perc_net(pred_cropped)   # (B,Cf,Hf,Wf)
             with torch.no_grad():
-                feat_ref  = perc_net(ref_up)
+                feat_ref  = perc_net(ref_up)     # (B,Cf,Hf,Wf)
+
             feat_mask = F.interpolate(
-                mask_full, size=feat_pred.shape[-2:],
-                mode='nearest'
-            )
-            perc_loss = torch.mean(torch.abs(
-                feat_pred[feat_mask >= 1e-8] - feat_ref[feat_mask >= 1e-8]
-            ))
+                mask_full, size=feat_pred.shape[-2:], mode='nearest'
+            )                                # (B,1,Hf,Wf)
+            feat_mask = (feat_mask >= 1e-8).float()
+            feat_mask = feat_mask.expand_as(feat_pred)   # (B,Cf,Hf,Wf)
+
+            diff = torch.abs(feat_pred - feat_ref) * feat_mask
+            perc_loss = diff.sum() / (feat_mask.sum() + 1e-8)
             losses["perceptual"] = lambda_perc * perc_loss
 
 
