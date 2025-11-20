@@ -181,7 +181,7 @@ def _infer(
 
 
         # ---------- R1: Boundary-aware L1 Loss ----------
-        if ablation_mode == "R1":
+        if ablation_mode in ("R1", "R5"):
             print("R1 running")
             # mask_full = full resolution mask (1 channel)
             mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]]  # shape (B,1,H,W)
@@ -237,7 +237,7 @@ def _infer(
             loss.backward()
 
             # ---------- R3: Masked latent refinement ----------
-            if ablation_mode in ("R3", "R4"):
+            if ablation_mode in ("R3", "R4","R5"):
                 print("R3 running")
                 mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]].to(z1.device)
                 feat_mask = F.interpolate(
