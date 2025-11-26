@@ -237,7 +237,7 @@ def _infer(
             loss.backward()
 
             # ---------- R3: Masked latent refinement ----------
-            if ablation_mode in ("R3", "R4","R5"):
+            if ablation_mode in ("R3", "R4", "R5"):
                 print("R3 running")
                 mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]].to(z1.device)
                 feat_mask = F.interpolate(
@@ -402,7 +402,7 @@ def refine_predict(
             image_inpainted, orig_shape, devices, ids,
             n_iters, lr,
             ablation_mode=ablation_mode,
-            # lambda_edge=lambda_edge,
+            lambda_edge=lambda_edge,
             lambda_perc=lambda_perc,
         )
 
