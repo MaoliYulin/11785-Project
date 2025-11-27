@@ -205,7 +205,7 @@ def _infer(
 
         # ---------- R2: Perceptual loss ----------
         if ablation_mode in ("R2", "R4") and lambda_perc > 0.0:
-            print("R3 running")
+            print("R2 running")
             ref_up = F.interpolate(
                 ref_lower_res, size=orig_shape,
                 mode='bilinear', align_corners=False
