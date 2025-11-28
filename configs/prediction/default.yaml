@@ -14,27 +14,27 @@ device: cuda
 out_key: inpainted
 
 refine: True # refiner will only run if this is True
-#refiner:
-#  gpu_ids: "0" # the GPU ids of the machine to use. If only single GPU, use: "0,"
-#  modulo: ${dataset.pad_out_to_modulo}
-#  n_iters: 20 # number of iterations of refinement for each scale 15
-#  lr: 0.001 # learning rate 0.002
-#  min_side: 512 # all sides of image on all scales should be >= min_side / sqrt(2)
-#  max_scales: 3 # max number of downscaling scales for the image-mask pyramid
-#  px_budget: 1800000 # pixels budget. Any image will be resized to satisfy height*width <= px_budget
-#  ablation_mode: "R3" # "R0" - "R4" - "R5"
-#  lambda_edge: 1.0 # R1 1.0
-#  lambda_perc: 0.1 # R2 0.1
-
 refiner:
-  gpu_ids: "0"
+  gpu_ids: "0" # the GPU ids of the machine to use. If only single GPU, use: "0,"
   modulo: ${dataset.pad_out_to_modulo}
-  n_iters: 5
-  lr: 0.002
-  min_side: 512
-  max_scales: 1
-  px_budget: 268435456
+  n_iters: 20 # number of iterations of refinement for each scale 15
+  lr: 0.001 # learning rate 0.002
+  min_side: 512 # all sides of image on all scales should be >= min_side / sqrt(2)
+  max_scales: 3 # max number of downscaling scales for the image-mask pyramid
+  px_budget: 1800000 # pixels budget. Any image will be resized to satisfy height*width <= px_budget
+  ablation_mode: "R0" # "R0" - "R4" - "R5"
+  lambda_edge: 1.0 # R1 1.0
+  lambda_perc: 0.1 # R2 0.1
 
-  lambda_data: 1.0
-  lambda_tv: 0.1
-  lambda_edge: 1.0
+#refiner:
+#  gpu_ids: "0"
+#  modulo: ${dataset.pad_out_to_modulo}
+#  n_iters: 5
+#  lr: 0.002
+#  min_side: 512
+#  max_scales: 1
+#  px_budget: 268435456
+#
+#  lambda_data: 1.0
+#  lambda_tv: 0.1
+#  lambda_edge: 1.0
