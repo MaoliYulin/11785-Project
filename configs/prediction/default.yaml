@@ -15,43 +15,37 @@ out_key: inpainted
 
 refine: True # refiner will only run if this is True False
 refiner:
-  gpu_ids: "0" # the GPU ids of the machine to use. If only single GPU, use: "0,"
+  gpu_ids: "0"
   modulo: ${dataset.pad_out_to_modulo}
-  n_iters: 15 # number of iterations of refinement for each scale 15 20
-  lr: 0.002 # learning rate 0.002
-  min_side: 512 # all sides of image on all scales should be >= min_side / sqrt(2)
-  max_scales: 3 # max number of downscaling scales for the image-mask pyramid
-  px_budget: 1800000 # pixels budget. Any image will be resized to satisfy height*width <= px_budget
-  ablation_mode: "R4" # "R0" - "R4" - "R5"
-  lambda_edge: 1.0 # R1 1.0
-  lambda_perc: 0.1 # R2 0.1
+  n_iters: 15
+  lr: 0.002
+  min_side: 512
+  max_scales: 3
+  px_budget: 18000000
 
+  ablation_mode: "R6"    # 改成 "R6" / "R7" / "R8" 来测试
+  lambda_edge: 1.0       # 只对 R1/R4/R5 有效
+  lambda_perc: 0.1       # 只对 R2/R5 有效
 
+  lambda_freq: 0.05      # R6 / R8 用
+  lr_local: 0.001        # R7 用（z1）
+  lr_global: 0.002       # R7 用（z2）
+  n_global_only: 5       # R7 用
+  lambda_struct: 0.5     # R8 用
 
-#refine: True
 #refiner:
-#  gpu_ids: "0"
+#  gpu_ids: "0" # the GPU ids of the machine to use. If only single GPU, use: "0,"
 #  modulo: ${dataset.pad_out_to_modulo}
-#  n_iters: 15
-#  lr: 0.002
-#  min_side: 512
-#  max_scales: 3
-#  px_budget: 18000000
-#
-#  # === 原论文方法 ===
-#  ablation_mode: "R0"   # "R0"~"R8"
-#  # R1
-#  lambda_edge: 1.0
-#  # R2
-#  lambda_perc: 0.1
-#  # === R6: Frequency-aware refinement ===
-#  lambda_freq: 0.05      # 频域频谱约束
-#  # === R7: z1/z2 分离更新 ===
-#  lr_local: 0.001        # z1（local branch）
-#  lr_global: 0.002       # z2（global branch）
-#  n_global_only: 5       # 前多少步只更新 z2
-#  # === R8: Multi-scale structural ===
-#  lambda_struct: 0.5     # 下采样结构一致性
+#  n_iters: 15 # number of iterations of refinement for each scale 15 20
+#  lr: 0.002 # learning rate 0.002
+#  min_side: 512 # all sides of image on all scales should be >= min_side / sqrt(2)
+#  max_scales: 3 # max number of downscaling scales for the image-mask pyramid
+#  px_budget: 1800000 # pixels budget. Any image will be resized to satisfy height*width <= px_budget
+#  ablation_mode: "R4" # "R0" - "R4" - "R5"
+#  lambda_edge: 1.0 # R1 1.0
+#  lambda_perc: 0.1 # R2 0.1
+
+
 
 
 
