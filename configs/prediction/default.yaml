@@ -18,12 +18,12 @@ refiner:
   gpu_ids: "0"
   modulo: ${dataset.pad_out_to_modulo}
   n_iters: 15 # 15
-  lr: 0.0015 # 0.002
+  lr: 0.002 # 0.002
   min_side: 512
   max_scales: 3
   px_budget: 18000000
 
-  ablation_mode: "R1"
+  ablation_mode: "R0"
   lambda_edge: 1.0
   lambda_perc: 0.1
 
