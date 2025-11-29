@@ -243,12 +243,10 @@ def _infer(
             on_pred=True,
         )
 
-        # ---------- R1 / R4 / R5: edge-aware image loss ----------
         if ablation_mode in ("R1", "R4", "R5"):
             loss_edge_img = _edge_consistency_loss(pred, image, mask, ekernel)
             losses["edge"] = lambda_edge * loss_edge_img
 
-        # ---------- R2 / R5: 简单 perceptual-like term ----------
         if ablation_mode in ("R2", "R5") and lambda_perc > 0.0:
             ref_up = F.interpolate(
                 ref_lower_res,
@@ -256,13 +254,12 @@ def _infer(
                 mode="bilinear",
                 align_corners=False,
             )
-            # “perceptual-like”：在 mask 区域让 pred 贴合低分辨率指导
+
             m3 = mask_rgb[:, :, : orig_shape[0], : orig_shape[1]]
             diff_perc = torch.abs(pred_cropped - ref_up) * m3
             loss_perc = diff_perc.sum() / (m3.sum() + 1e-8)
             losses["perc"] = lambda_perc * loss_perc
 
-        # ---------- R6 / R8: frequency-aware loss ----------
         if ablation_mode in ("R6", "R8") and lambda_freq > 0.0:
             ref_up = F.interpolate(
                 ref_lower_res,
@@ -287,7 +284,6 @@ def _infer(
             )
             losses["freq"] = lambda_freq * loss_freq
 
-        # ---------- R8: multi-scale structural consistency ----------
         if ablation_mode in ("R8",) and lambda_struct > 0.0:
             img_cropped = image[:, :, : orig_shape[0], : orig_shape[1]]
             img_down = _pyrdown(img_cropped)
@@ -318,7 +314,6 @@ def _infer(
 
             optimizer.step()
 
-            # 释放中间变量
             del pred_downscaled
             del loss
             del pred
