@@ -23,7 +23,7 @@ refiner:
   max_scales: 3
   px_budget: 18000000
 
-  ablation_mode: "R6"    # 改成 "R6" / "R7" / "R8" 来测试
+  ablation_mode: "R7"    # 改成 "R6" / "R7" / "R8" 来测试
   lambda_edge: 1.0       # 只对 R1/R4/R5 有效
   lambda_perc: 0.1       # 只对 R2/R5 有效
 
