@@ -17,10 +17,6 @@ from saicinpainting.training.modules.pix2pixhd import ResnetBlock
 
 from tqdm import tqdm
 
-
-# ---------------------- basic helpers ----------------------
-
-
 def _pyrdown(im: torch.Tensor, downsize: tuple = None):
     """Blur + downsample RGB image (B,3,H,W)."""
     if downsize is None:
@@ -89,9 +85,6 @@ def _l1_loss(
             torch.abs(pred_downscaled[mask_downscaled >= 1e-8] - ref[mask_downscaled >= 1e-8])
         )
     return loss
-
-
-# ---------------------- extra helpers for new modes ----------------------
 
 
 def _boundary_ring(mask_1: torch.Tensor, ekernel: torch.Tensor) -> torch.Tensor:
@@ -193,7 +186,6 @@ def _infer(
     feat_mask_z1 = _feat_mask_for_z(mask_rgb, z1).to(z1.device)
     feat_mask_z2 = _feat_mask_for_z(mask_rgb, z2).to(z2.device)
 
-    # ----- optimizer: 普通 or R7(z 分 lr) -----
     if ablation_mode == "R7":
         # separate lrs for local/global
         if lr_local <= 0:
@@ -304,9 +296,7 @@ def _infer(
             loss_struct = diff_struct.sum() / (not_mask.sum() + 1e-8)
             losses["struct"] = lambda_struct * loss_struct
 
-        # 这里你可以把 R3/R4/R5 的其它 loss（如果之前自己写过）也塞进 losses 里
 
-        # ---------- sum + backward ----------
         loss = sum(losses.values())
         pbar.set_description(
             f"[{ablation_mode}] scale {scale_ind+1} loss: {loss.item():.4f}"
@@ -315,12 +305,11 @@ def _infer(
         if idi < n_iters - 1:
             loss.backward()
 
-            # ---------- R7: 前 n_global_only 轮只更新 z2 ----------
+
             if ablation_mode == "R7" and idi < n_global_only:
                 if z1.grad is not None:
                     z1.grad.zero_()
 
-            # ---------- R3/R4/R5: masked latent (只更新掩膜区域特征) ----------
             if ablation_mode in ("R3", "R4", "R5"):
                 if z1.grad is not None:
                     z1.grad = z1.grad * feat_mask_z1
