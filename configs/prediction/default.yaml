@@ -33,7 +33,7 @@ out_key: inpainted
 #  n_global_only: 5       # R7
 #  lambda_struct: 0.5     # R8
 
-refine: True # refiner will only run if this is True
+refine: False # refiner will only run if this is True False
 refiner:
   gpu_ids: "0" # the GPU ids of the machine to use. If only single GPU, use: "0,"
   modulo: ${dataset.pad_out_to_modulo}
@@ -42,7 +42,7 @@ refiner:
   min_side: 512 # all sides of image on all scales should be >= min_side / sqrt(2)
   max_scales: 3 # max number of downscaling scales for the image-mask pyramid
   px_budget: 1800000 # pixels budget. Any image will be resized to satisfy height*width <= px_budget
-  ablation_mode: "R0" # "R0" - "R4"
+  ablation_mode: "R1" # "R0" - "R4"
   lambda_edge: 1.0 # R1 1.0
   lambda_perc: 0.0 # R2 0.1
 
