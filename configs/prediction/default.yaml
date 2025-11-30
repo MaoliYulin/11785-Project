@@ -33,7 +33,7 @@ out_key: inpainted
 #  n_global_only: 5       # R7
 #  lambda_struct: 0.5     # R8
 
-refine: True # refiner will only run if this is True False
+refine: False # refiner will only run if this is True False
 refiner:
   gpu_ids: "0" # the GPU ids of the machine to use. If only single GPU, use: "0,"
   modulo: ${dataset.pad_out_to_modulo}
