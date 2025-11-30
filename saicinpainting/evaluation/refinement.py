@@ -486,7 +486,6 @@
 #         mask = mask.detach().cpu()
 #
 #     return image_inpainted
-#
 
 
 import torch
@@ -494,10 +493,11 @@ import torch.nn as nn
 from torch.optim import Adam, SGD
 from kornia.filters import gaussian_blur2d
 from kornia.geometry.transform import resize
-from kornia.morphology import erosion
+from kornia.morphology import erosion, dilation
 from torch.nn import functional as F
 import numpy as np
 import cv2
+from torchvision import models
 
 from saicinpainting.evaluation.data import pad_tensor_to_modulo
 from saicinpainting.evaluation.utils import move_to_device
@@ -578,11 +578,30 @@ def _l1_loss(
     return loss
 
 
+_PERCEPTUAL_NET = None
+
+
+def get_perceptual_net(device):
+    global _PERCEPTUAL_NET
+    if _PERCEPTUAL_NET is None:
+        try:
+            vgg = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_FEATURES)
+        except Exception:
+            vgg = models.vgg16(pretrained=True)
+        vgg_features = vgg.features[:16]
+        vgg_features.eval()
+        for p in vgg_features.parameters():
+            p.requires_grad = False
+        _PERCEPTUAL_NET = vgg_features.to(device)
+    return _PERCEPTUAL_NET
+
+
 def _infer(
         image: torch.Tensor, mask: torch.Tensor,
         forward_front: nn.Module, forward_rears: nn.Module,
         ref_lower_res: torch.Tensor, orig_shape: tuple, devices: list,
-        scale_ind: int, n_iters: int = 15, lr: float = 0.002):
+        scale_ind: int, n_iters: int = 15, lr: float = 0.002, ablation_mode="R0", lambda_edge=1.0,
+        lambda_perc: float = 0.0):
     """Performs inference with refinement at a given scale.
 
     Parameters
@@ -655,11 +674,70 @@ def _infer(
         mask_downscaled = mask_downscaled.repeat(1, 3, 1, 1)
         losses["ms_l1"] = _l1_loss(pred, pred_downscaled, ref_lower_res, mask, mask_downscaled, image, on_pred=True)
 
+        # ---------- R1: Boundary-aware L1 Loss ----------
+        if ablation_mode in ("R1", "R5"):
+            print("R1 running")
+            # mask_full = full resolution mask (1 channel)
+            mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]]  # shape (B,1,H,W)
+            ring_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+            ring_kernel = torch.from_numpy(ring_kernel).float().to(mask_full.device)
+            # dilation / erosion
+            mask_dilate = dilation(mask_full, ring_kernel)
+            mask_erode = erosion(mask_full, ring_kernel)
+            ring = (mask_dilate - mask_erode).clamp(0, 1)
+            ring = ring.repeat(1, 3, 1, 1)
+            # L1(pred, image) but only on ring region
+            pred_cropped = pred[:, :, :orig_shape[0], :orig_shape[1]]
+            img_cropped = image[:, :, :orig_shape[0], :orig_shape[1]]
+            edge_loss = torch.mean(torch.abs(
+                pred_cropped[ring > 0.5] - img_cropped[ring > 0.5]
+            ))
+            losses["edge_l1"] = lambda_edge * edge_loss
+
+        # ---------- R2: Perceptual loss ----------
+        if ablation_mode in ("R2", "R4") and lambda_perc > 0.0:
+            print("R3 running")
+            ref_up = F.interpolate(
+                ref_lower_res, size=orig_shape,
+                mode='bilinear', align_corners=False
+            )  # (B,3,H,W)
+            pred_cropped = pred[:, :, :orig_shape[0], :orig_shape[1]]  # (B,3,H,W)
+            mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]]  # (B,1,H,W)
+
+            perc_net = get_perceptual_net(pred_cropped.device)
+            feat_pred = perc_net(pred_cropped)  # (B,Cf,Hf,Wf)
+            with torch.no_grad():
+                feat_ref = perc_net(ref_up)  # (B,Cf,Hf,Wf)
+
+            feat_mask = F.interpolate(
+                mask_full, size=feat_pred.shape[-2:], mode='nearest'
+            )  # (B,1,Hf,Wf)
+            feat_mask = (feat_mask >= 1e-8).float()
+            feat_mask = feat_mask.expand_as(feat_pred)  # (B,Cf,Hf,Wf)
+
+            diff = torch.abs(feat_pred - feat_ref) * feat_mask
+            perc_loss = diff.sum() / (feat_mask.sum() + 1e-8)
+            losses["perceptual"] = lambda_perc * perc_loss
+
         loss = sum(losses.values())
         pbar.set_description(
             "Refining scale {} using scale {} ...current loss: {:.4f}".format(scale_ind + 1, scale_ind, loss.item()))
         if idi < n_iters - 1:
             loss.backward()
+
+            # ---------- R3: Masked latent refinement ----------
+            if ablation_mode in ("R3", "R4", "R5"):
+                print("R3 running")
+                mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]].to(z1.device)
+                feat_mask = F.interpolate(
+                    mask_full, size=z1.shape[-2:], mode='nearest'
+                )
+                feat_mask = (feat_mask >= 1e-8).float()
+                if z1.grad is not None:
+                    z1.grad *= feat_mask
+                if z2.grad is not None:
+                    z2.grad *= feat_mask
+
             optimizer.step()
             del pred_downscaled
             del loss
@@ -727,7 +805,7 @@ def refine_predict(
         batch: dict, inpainter: nn.Module, gpu_ids: str,
         modulo: int, n_iters: int, lr: float, min_side: int,
         max_scales: int, px_budget: int
-):
+        , ablation_mode: str = "R0", lambda_edge=None, lambda_perc: float = 0.0):
     """Refines the inpainting of the network
 
     Parameters
@@ -805,8 +883,19 @@ def refine_predict(
         image, mask = move_to_device(image, devices[0]), move_to_device(mask, devices[0])
         if image_inpainted is not None:
             image_inpainted = move_to_device(image_inpainted, devices[-1])
-        image_inpainted = _infer(image, mask, forward_front, forward_rears, image_inpainted, orig_shape, devices, ids,
-                                 n_iters, lr)
+
+        # image_inpainted = _infer(image, mask, forward_front, forward_rears, image_inpainted, orig_shape, devices, ids, n_iters, lr)
+
+        # ---------- R1: Boundary-aware L1 Loss ----------
+        image_inpainted = _infer(
+            image, mask, forward_front, forward_rears,
+            image_inpainted, orig_shape, devices, ids,
+            n_iters, lr,
+            ablation_mode=ablation_mode,
+            # lambda_edge=lambda_edge,
+            lambda_perc=lambda_perc,
+        )
+
         image_inpainted = image_inpainted[:, :, :orig_shape[0], :orig_shape[1]]
         # detach everything to save resources
         image = image.detach().cpu()
