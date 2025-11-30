@@ -22,7 +22,7 @@ refiner:
   min_side: 512
   max_scales: 3
   px_budget: 1800000
-  ablation_mode: "R0"
+  ablation_mode: "R1"
   lambda_edge: 1.0
   lambda_perc: 0.1
   two_stage: True
