@@ -25,12 +25,12 @@ refiner:
   ablation_mode: "R0"
   lambda_edge: 1.0
   lambda_perc: 0.1
-  two_stage: False # False True
+  two_stage: True # False True
   pixel_n_iters: 15
   pixel_lr: 0.002
   pixel_lambda_data: 1.0
   pixel_lambda_tv: 0.1
-  pixel_lambda_edge: 1.0
+#  pixel_lambda_edge: 1.0
 
 
 #refine: False # refiner will only run if this is True False

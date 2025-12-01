@@ -404,12 +404,11 @@ def pixel_refine_after_R(
             I_ref[mask3 > 0.5] - init_inpaint[mask3 > 0.5]
         ))
         tv_loss = total_variation_masked(I_ref, mask3)
-        edge_loss = boundary_ring_loss(I_ref, image, mask1)
+        # edge_loss = boundary_ring_loss(I_ref, image, mask1)
 
         loss = (
             lambda_data * data_loss +
-            lambda_tv * tv_loss +
-            lambda_edge * edge_loss
+            lambda_tv * tv_loss
         )
 
         pbar.set_description(f"Pixel+R loss: {loss.item():.4f}")
