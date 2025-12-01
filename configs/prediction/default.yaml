@@ -13,43 +13,44 @@ dataset:
 device: cuda
 out_key: inpainted
 
-refine: True
+refine: True # False True
 refiner:
   gpu_ids: "0"
   modulo: ${dataset.pad_out_to_modulo}
-  n_iters: 5
+  n_iters: 15
   lr: 0.002
   min_side: 512
-  max_scales: 1
-  px_budget: 268435456
-  lambda_data: 1.0
-  lambda_tv: 0.1
+  max_scales: 3
+  px_budget: 1800000
+  ablation_mode: "R3"
+  lambda_perc: 0.1
+  two_stage: True # False True
+  pixel_n_iters: 15
+  pixel_lr: 0.002
+  pixel_lambda_data: 1.0
+  pixel_lambda_tv: 0.1
 
 
-
-
-
-
-
-
-#refine: True # False True
+#refine: True
 #refiner:
 #  gpu_ids: "0"
 #  modulo: ${dataset.pad_out_to_modulo}
-#  n_iters: 15
+#  n_iters: 5
 #  lr: 0.002
 #  min_side: 512
-#  max_scales: 3
-#  px_budget: 1800000
-#  ablation_mode: "R3"
-#  lambda_edge: 1.0
-#  lambda_perc: 0.1
-#  two_stage: True # False True
-#  pixel_n_iters: 15
-#  pixel_lr: 0.002
-#  pixel_lambda_data: 1.0
-#  pixel_lambda_tv: 0.1
-##  pixel_lambda_edge: 1.0
+#  max_scales: 1
+#  px_budget: 268435456
+#  lambda_data: 1.0
+#  lambda_tv: 0.1
+
+
+
+
+
+
+
+
+
 
 
 #refine: False # refiner will only run if this is True False
@@ -63,22 +64,6 @@ refiner:
 #  px_budget: 1800000 # pixels budget. Any image will be resized to satisfy height*width <= px_budget
 
 
-
-
-
-
-#refiner:
-#  gpu_ids: "0"
-#  modulo: ${dataset.pad_out_to_modulo}
-#  n_iters: 5
-#  lr: 0.002
-#  min_side: 512
-#  max_scales: 1
-#  px_budget: 268435456
-#
-#  lambda_data: 1.0
-#  lambda_tv: 0.1
-#  lambda_edge: 1.0
 
 
 
