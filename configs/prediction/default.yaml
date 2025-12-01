@@ -33,9 +33,9 @@ refiner:
   min_side: 512
   max_scales: 3
   px_budget: 1800000
-  ablation_mode: "R3"
+  ablation_mode: "R0"
   lambda_perc: 0.1
-  two_stage: False # False True
+  two_stage: True # False True
   pixel_n_iters: 15
   pixel_lr: 0.002
   pixel_lambda_data: 1.0
