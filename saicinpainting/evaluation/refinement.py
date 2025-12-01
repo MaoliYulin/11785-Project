@@ -16,42 +16,6 @@ from saicinpainting.training.modules.pix2pixhd import ResnetBlock
 
 from tqdm import tqdm
 
-def total_variation_masked(img: torch.Tensor, mask3: torch.Tensor) -> torch.Tensor:
-    dh = torch.abs(img[:, :, 1:, :] - img[:, :, :-1, :])
-    mask_h = mask3[:, :, 1:, :] * mask3[:, :, :-1, :]
-    dw = torch.abs(img[:, :, :, 1:] - img[:, :, :, :-1])
-    mask_w = mask3[:, :, :, 1:] * mask3[:, :, :, :-1]
-
-    num = (dh * mask_h).sum() + (dw * mask_w).sum()
-    den = mask_h.sum() + mask_w.sum() + 1e-8
-    return num / den
-
-
-def boundary_ring_loss(
-    img_ref: torch.Tensor,
-    img_orig: torch.Tensor,
-    mask1: torch.Tensor,
-    kernel_size: int = 15
-) -> torch.Tensor:
-    """
-    只在 mask 边界的一圈 ring 上，让 I_ref 靠近原图
-    img_ref, img_orig: (B,3,H,W)
-    mask1: (B,1,H,W)
-    """
-    device = img_ref.device
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    ekernel = torch.from_numpy(kernel.astype(bool)).float().to(device)
-
-    dil = dilation(mask1, ekernel)
-    ero = erosion(mask1, ekernel)
-    ring = (dil - ero).clamp(0, 1.0)
-    ring3 = ring.repeat(1, 3, 1, 1)
-
-    diff = torch.abs(img_ref - img_orig) * ring3
-    num = diff.sum()
-    den = ring3.sum() + 1e-8
-    return num / den
-
 
 def _pyrdown(im: torch.Tensor, downsize: tuple = None):
     """downscale the image"""
@@ -220,9 +184,10 @@ def _infer(
         mask_downscaled = mask_downscaled.repeat(1, 3, 1, 1)
         losses["ms_l1"] = _l1_loss(pred, pred_downscaled, ref_lower_res, mask, mask_downscaled, image, on_pred=True)
 
-        # ---------- R2: Perceptual loss ----------
+
+        # ---------- R1: Perceptual loss ----------
         if ablation_mode in ("R1", "R3") and lambda_perc > 0.0:
-            print("R1 running")
+            print("R3 running")
             ref_up = F.interpolate(
                 ref_lower_res, size=orig_shape,
                 mode='bilinear', align_corners=False
@@ -251,9 +216,9 @@ def _infer(
         if idi < n_iters - 1:
             loss.backward()
 
-            # ---------- R3: Masked latent refinement ----------
+            # ---------- R2: Masked latent refinement ----------
             if ablation_mode in ("R2", "R3"):
-                print("R2 running")
+                print("R3 running")
                 mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]].to(z1.device)
                 feat_mask = F.interpolate(
                     mask_full, size=z1.shape[-2:], mode='nearest'
@@ -327,100 +292,45 @@ def _get_image_mask_pyramid(batch: dict, min_side: int, max_scales: int, px_budg
     return ls_images[::-1], ls_masks[::-1]
 
 
-
-
-def pixel_refine_after_R(
-        batch: dict,
-        init_inpaint: torch.Tensor,
-        gpu_ids: str,
-        modulo: int,
-        n_iters: int,
-        lr: float,
-        px_budget: int,
-        lambda_data: float = 1.0,
-        lambda_tv: float = 0.1,
-):
-    assert batch["image"].shape[0] == 1, "pixel_refine_after_R batch_size=1"
-    assert init_inpaint is not None
-
-    gpu_id_list = [gpuid for gpuid in gpu_ids.replace(" ", "").split(",") if gpuid.isdigit()]
-    if len(gpu_id_list) > 0 and torch.cuda.is_available():
-        device = torch.device(f"cuda:{gpu_id_list[0]}")
-    else:
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    h0, w0 = batch["unpad_to_size"]
-    h0, w0 = h0[0].item(), w0[0].item()
-    image = batch["image"][..., :h0, :w0]        # (1,3,H0,W0)
-    mask1 = batch["mask"][..., :h0, :w0]         # (1,1,H0,W0)
-    mask1 = (mask1 > 0).float()
-
-    h_r, w_r = init_inpaint.shape[2], init_inpaint.shape[3]
-
-    if (h0, w0) != (h_r, w_r):
-        image = resize(image, (h_r, w_r), interpolation="bilinear", align_corners=False)
-        mask1 = resize(mask1, (h_r, w_r), interpolation="nearest")
-        mask1 = (mask1 > 0.5).float()
-
-    image = pad_tensor_to_modulo(image, modulo)
-    mask1 = pad_tensor_to_modulo(mask1, modulo)
-    init_inpaint = pad_tensor_to_modulo(init_inpaint, modulo)
-
-    image = move_to_device(image, device)
-    mask1 = move_to_device(mask1, device)
-    init_inpaint = move_to_device(init_inpaint, device)
-
-    mask3 = mask1.repeat(1, 3, 1, 1)
-
-    I_ref = init_inpaint.clone().detach().requires_grad_(True)
-    optimizer = Adam([I_ref], lr=lr)
-
-    pbar = tqdm(range(n_iters), leave=False, desc="Pixel refinement (after R)")
-    for _ in pbar:
-        optimizer.zero_grad()
-
-        data_loss = torch.mean(torch.abs(
-            I_ref[mask3 > 0.5] - init_inpaint[mask3 > 0.5]
-        ))
-        tv_loss = total_variation_masked(I_ref, mask3)
-
-        loss = (
-            lambda_data * data_loss +
-            lambda_tv * tv_loss
-        )
-
-        pbar.set_description(f"Pixel+R loss: {loss.item():.4f}")
-        loss.backward()
-        optimizer.step()
-
-        with torch.no_grad():
-            I_ref.data[mask3 < 0.5] = image.data[mask3 < 0.5]
-
-    I_ref = I_ref[:, :, :h_r, :w_r]
-    return I_ref.detach().cpu()
-
-
-
-
-
-
 def refine_predict(
         batch: dict, inpainter: nn.Module, gpu_ids: str,
         modulo: int, n_iters: int, lr: float, min_side: int,
-        max_scales: int, px_budget: int,
-        ablation_mode: str = "R0", lambda_perc: float = 0.0,
-        two_stage: bool = False,
-        pixel_n_iters: int = 15,
-        pixel_lr: float = 0.002,
-        pixel_lambda_data: float = 1.0,
-        pixel_lambda_tv: float = 0.1,
-):
+        max_scales: int, px_budget: int
+        , ablation_mode: str = "R0", lambda_edge=None, lambda_perc: float = 0.0):
+    """Refines the inpainting of the network
+
+    Parameters
+    ----------
+    batch : dict
+        image-mask batch, currently we assume the batchsize to be 1
+    inpainter : nn.Module
+        the inpainting neural network
+    gpu_ids : str
+        the GPU ids of the machine to use. If only single GPU, use: "0,"
+    modulo : int
+        pad the image to ensure dimension % modulo == 0
+    n_iters : int
+        number of iterations of refinement for each scale
+    lr : float
+        learning rate
+    min_side : int
+        all sides of image on all scales should be >= min_side / sqrt(2)
+    max_scales : int
+        max number of downscaling scales for the image-mask pyramid
+    px_budget : int
+        pixels budget. Any image will be resized to satisfy height*width <= px_budget
+
+    Returns
+    -------
+    torch.Tensor
+        inpainted image of size (1,3,H,W)
+    """
 
     assert not inpainter.training
     assert not inpainter.add_noise_kwargs
     assert inpainter.concat_mask
 
-    gpu_ids_list = [f'cuda:{gpuid}' for gpuid in gpu_ids.replace(" ", "").split(",") if gpuid.isdigit()]
+    gpu_ids = [f'cuda:{gpuid}' for gpuid in gpu_ids.replace(" ", "").split(",") if gpuid.isdigit()]
     n_resnet_blocks = 0
     first_resblock_ind = 0
     found_first_resblock = False
@@ -431,20 +341,18 @@ def refine_predict(
             found_first_resblock = True
         elif not found_first_resblock:
             first_resblock_ind += 1
-    resblocks_per_gpu = n_resnet_blocks // len(gpu_ids_list)
+    resblocks_per_gpu = n_resnet_blocks // len(gpu_ids)
 
-    devices = [torch.device(gpu_id) for gpu_id in gpu_ids_list]
+    devices = [torch.device(gpu_id) for gpu_id in gpu_ids]
 
     # split the model into front, and rear parts
     forward_front = inpainter.generator.model[0:first_resblock_ind]
     forward_front.to(devices[0])
     forward_rears = []
-    for idd in range(len(gpu_ids_list)):
-        if idd < len(gpu_ids_list) - 1:
-            forward_rears.append(
-                inpainter.generator.model[first_resblock_ind + resblocks_per_gpu * (idd)
-                                          : first_resblock_ind + resblocks_per_gpu * (idd + 1)]
-            )
+    for idd in range(len(gpu_ids)):
+        if idd < len(gpu_ids) - 1:
+            forward_rears.append(inpainter.generator.model[first_resblock_ind + resblocks_per_gpu * (
+                idd):first_resblock_ind + resblocks_per_gpu * (idd + 1)])
         else:
             forward_rears.append(inpainter.generator.model[first_resblock_ind + resblocks_per_gpu * (idd):])
         forward_rears[idd].to(devices[idd])
@@ -467,6 +375,8 @@ def refine_predict(
         if image_inpainted is not None:
             image_inpainted = move_to_device(image_inpainted, devices[-1])
 
+        # image_inpainted = _infer(image, mask, forward_front, forward_rears, image_inpainted, orig_shape, devices, ids, n_iters, lr)
+
         image_inpainted = _infer(
             image, mask, forward_front, forward_rears,
             image_inpainted, orig_shape, devices, ids,
@@ -479,18 +389,5 @@ def refine_predict(
         # detach everything to save resources
         image = image.detach().cpu()
         mask = mask.detach().cpu()
-
-    if two_stage:
-        image_inpainted = pixel_refine_after_R(
-            batch=batch,
-            init_inpaint=image_inpainted,
-            gpu_ids=gpu_ids,
-            modulo=modulo,
-            n_iters=pixel_n_iters,
-            lr=pixel_lr,
-            px_budget=px_budget,
-            lambda_data=pixel_lambda_data,
-            lambda_tv=pixel_lambda_tv,
-        )
 
     return image_inpainted
