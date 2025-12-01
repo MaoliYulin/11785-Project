@@ -13,22 +13,33 @@ dataset:
 device: cuda
 out_key: inpainted
 
-refine: True # False True
+refine: False # refiner will only run if this is True False
 refiner:
-  gpu_ids: "0"
+  gpu_ids: "0" # the GPU ids of the machine to use. If only single GPU, use: "0,"
   modulo: ${dataset.pad_out_to_modulo}
-  n_iters: 15
-  lr: 0.002
-  min_side: 512
-  max_scales: 3
-  px_budget: 1800000
-  ablation_mode: "R3"
-  lambda_perc: 0.1
-  two_stage: True # False True
-  pixel_n_iters: 15
-  pixel_lr: 0.002
-  pixel_lambda_data: 1.0
-  pixel_lambda_tv: 0.1
+  n_iters: 15 # number of iterations of refinement for each scale
+  lr: 0.002 # learning rate
+  min_side: 512 # all sides of image on all scales should be >= min_side / sqrt(2)
+  max_scales: 3 # max number of downscaling scales for the image-mask pyramid
+  px_budget: 1800000 # pixels budget. Any image will be resized to satisfy height*width <= px_budget
+
+
+#refine: True # False True
+#refiner:
+#  gpu_ids: "0"
+#  modulo: ${dataset.pad_out_to_modulo}
+#  n_iters: 15
+#  lr: 0.002
+#  min_side: 512
+#  max_scales: 3
+#  px_budget: 1800000
+#  ablation_mode: "R3"
+#  lambda_perc: 0.1
+#  two_stage: True # False True
+#  pixel_n_iters: 15
+#  pixel_lr: 0.002
+#  pixel_lambda_data: 1.0
+#  pixel_lambda_tv: 0.1
 
 
 #refine: True
