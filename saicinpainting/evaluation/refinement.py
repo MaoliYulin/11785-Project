@@ -187,7 +187,7 @@ def _infer(
 
         # ---------- R1: Perceptual loss ----------
         if ablation_mode in ("R1", "R3") and lambda_perc > 0.0:
-            print("R3 running")
+            print("R1 running")
             ref_up = F.interpolate(
                 ref_lower_res, size=orig_shape,
                 mode='bilinear', align_corners=False
@@ -218,7 +218,7 @@ def _infer(
 
             # ---------- R2: Masked latent refinement ----------
             if ablation_mode in ("R2", "R3"):
-                print("R3 running")
+                print("R2 running")
                 mask_full = mask[:, :1, :orig_shape[0], :orig_shape[1]].to(z1.device)
                 feat_mask = F.interpolate(
                     mask_full, size=z1.shape[-2:], mode='nearest'
